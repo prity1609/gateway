@@ -4,7 +4,7 @@ import { env } from '../config/environment.js';
 import redisClient from '../config/redis.js';
 
 export const authMiddleware = async (req, res, next) => {
-  const sessionId = req.cookies.uuid; // Use UUID cookie instead
+  const sessionId = req.cookies.uuid;
 
   if (!sessionId) {
     return res.status(401).json({ message: 'Unauthorized: No session ID found.' });
@@ -18,7 +18,11 @@ export const authMiddleware = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(jwtFromRedis, env.JWT_SECRET);
+    
+    // Attach user data to request
     req.user = decoded;
+    req.jwtToken = jwtFromRedis;
+    
     next();
   } catch (error) {
     return res.status(401).json({ message: 'Unauthorized: Invalid session token.' });
