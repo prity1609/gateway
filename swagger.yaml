@@ -1,0 +1,626 @@
+openapi: 3.0.3
+info:
+  title: API Gateway
+  description: |
+    A robust Express.js API Gateway with Redis session management, JWT authentication, RBAC, and automatic UUID tracking.
+    
+    ## Features
+    - Automatic UUID tracking for all requests
+    - Redis-based session management
+    - JWT authentication
+    - Role-based access control (RBAC)
+    - Microservice proxy routing
+    - Health monitoring
+    
+    ## Authentication Flow
+    1. All requests automatically get UUID tracking via cookies
+    2. Login via `/gateway/test-auth` to create a session
+    3. Session stored in Redis with UUID as key
+    4. Protected routes validate JWT from Redis using UUID
+    
+  version: 1.0.0
+  contact:
+    name: API Gateway Support
+    email: support@example.com
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:3000
+    description: Development server
+  - url: https://your-production-domain.com
+    description: Production server
+
+tags:
+  - name: Health & Status
+    description: Health check and status endpoints
+  - name: Authentication
+    description: Authentication and session management
+  - name: Gateway Management
+    description: Gateway configuration and routing
+  - name: User Management
+    description: User-related operations (proxied to auth service)
+  - name: QR Management
+    description: QR code operations (proxied to QR service)
+  - name: Analytics
+    description: Dashboard and analytics (proxied to analytics service)
+
+paths:
+  /health:
+    get:
+      tags:
+        - Health & Status
+      summary: Health check
+      description: Check if the API Gateway is running and healthy
+      responses:
+        '200':
+          description: Gateway is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "healthy"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  gateway:
+                    type: string
+                    example: "running"
+
+  /gateway/ping:
+    get:
+      tags:
+        - Health & Status
+      summary: Gateway connectivity test
+      description: Test endpoint to verify gateway functionality without backend services
+      responses:
+        '200':
+          description: Gateway is working
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Gateway is working!"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  requestReceived:
+                    type: boolean
+                    example: true
+
+  /gateway/test-auth:
+    post:
+      tags:
+        - Authentication
+      summary: Create test session
+      description: |
+        Creates a test authentication session for testing purposes.
+        Uses automatic UUID from cookie and stores JWT in Redis.
+      responses:
+        '200':
+          description: Test session created successfully
+          headers:
+            Set-Cookie:
+              description: UUID cookie (if not already set)
+              schema:
+                type: string
+                example: "uuid=abc-123-def-456; HttpOnly; SameSite=lax"
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Test session created using automatic UUID"
+                  sessionId:
+                    type: string
+                    example: "abc-123-def-456"
+                  user:
+                    $ref: '#/components/schemas/User'
+                  flow:
+                    type: string
+                    example: "Global UUID Middleware → Redis Storage"
+                  cookieAlreadySet:
+                    type: string
+                    example: "UUID cookie was set automatically"
+        '500':
+          description: Failed to create session
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /gateway/test-protected:
+    get:
+      tags:
+        - Authentication
+      summary: Test protected endpoint
+      description: Test endpoint that requires authentication
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Authentication successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Authentication successful!"
+                  user:
+                    $ref: '#/components/schemas/User'
+                  timestamp:
+                    type: string
+                    format: date-time
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthError'
+
+  /gateway/test-no-auth:
+    get:
+      tags:
+        - Health & Status
+      summary: Test endpoint without authentication
+      description: Test endpoint that should always work without authentication
+      responses:
+        '200':
+          description: Endpoint accessible
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "This endpoint has NO authentication - should always work"
+                  timestamp:
+                    type: string
+                    format: date-time
+                  authRequired:
+                    type: boolean
+                    example: false
+
+  /gateway/routes:
+    get:
+      tags:
+        - Gateway Management
+      summary: View route configuration
+      description: Shows all configured routes and their middleware
+      responses:
+        '200':
+          description: Route configuration
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Gateway route configuration"
+                  routes:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/RouteConfig'
+                  totalRoutes:
+                    type: integer
+                    example: 4
+
+  /api/v1/auth/signup:
+    post:
+      tags:
+        - User Management
+      summary: User signup (proxied to auth service)
+      description: Create a new user account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+                - name
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+                password:
+                  type: string
+                  minLength: 6
+                  example: "securepassword"
+                name:
+                  type: string
+                  example: "John Doe"
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "User created successfully"
+                  token:
+                    type: string
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  user:
+                    $ref: '#/components/schemas/User'
+        '400':
+          description: Bad request
+        '409':
+          description: User already exists
+
+  /api/v1/auth/login:
+    post:
+      tags:
+        - User Management
+      summary: User login (proxied to auth service)
+      description: Authenticate user and create session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - email
+                - password
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: "user@example.com"
+                password:
+                  type: string
+                  example: "securepassword"
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Login successful"
+                  token:
+                    type: string
+                    example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                  user:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Invalid credentials
+
+  /api/v1/users/profile:
+    get:
+      tags:
+        - User Management
+      summary: Get user profile (proxied to auth service)
+      description: Retrieve current user's profile information
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: User profile retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserProfile'
+        '401':
+          description: Unauthorized
+    put:
+      tags:
+        - User Management
+      summary: Update user profile (proxied to auth service)
+      description: Update current user's profile information
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "John Doe Updated"
+                email:
+                  type: string
+                  format: email
+                  example: "newemail@example.com"
+      responses:
+        '200':
+          description: Profile updated successfully
+        '401':
+          description: Unauthorized
+
+  /api/v1/qr/generate:
+    post:
+      tags:
+        - QR Management
+      summary: Generate QR code (proxied to QR service)
+      description: Generate a new QR code
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - data
+              properties:
+                data:
+                  type: string
+                  example: "https://example.com"
+                size:
+                  type: integer
+                  example: 200
+                format:
+                  type: string
+                  enum: [png, svg, pdf]
+                  example: "png"
+      responses:
+        '200':
+          description: QR code generated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  qrId:
+                    type: string
+                    example: "qr-123-456"
+                  data:
+                    type: string
+                    example: "https://example.com"
+                  imageUrl:
+                    type: string
+                    example: "/qr/images/qr-123-456.png"
+        '401':
+          description: Unauthorized
+
+  /api/v1/qr/{qrId}:
+    get:
+      tags:
+        - QR Management
+      summary: Get QR code details (proxied to QR service)
+      description: Retrieve QR code information
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: qrId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "qr-123-456"
+      responses:
+        '200':
+          description: QR code details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  qrId:
+                    type: string
+                    example: "qr-123-456"
+                  data:
+                    type: string
+                    example: "https://example.com"
+                  createdAt:
+                    type: string
+                    format: date-time
+                  scans:
+                    type: integer
+                    example: 15
+        '401':
+          description: Unauthorized
+        '404':
+          description: QR code not found
+
+  /api/v1/dashboard/analytics:
+    post:
+      tags:
+        - Analytics
+      summary: Get analytics data (proxied to analytics service)
+      description: Retrieve dashboard analytics (admin only)
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                dateRange:
+                  type: object
+                  properties:
+                    start:
+                      type: string
+                      format: date
+                      example: "2025-01-01"
+                    end:
+                      type: string
+                      format: date
+                      example: "2025-12-31"
+                metrics:
+                  type: array
+                  items:
+                    type: string
+                    enum: [users, qr_codes, scans, revenue]
+                  example: ["users", "qr_codes"]
+      responses:
+        '200':
+          description: Analytics data
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  totalUsers:
+                    type: integer
+                    example: 1250
+                  totalQRCodes:
+                    type: integer
+                    example: 3500
+                  totalScans:
+                    type: integer
+                    example: 25000
+                  dateRange:
+                    type: object
+                    properties:
+                      start:
+                        type: string
+                        format: date
+                      end:
+                        type: string
+                        format: date
+        '401':
+          description: Unauthorized
+        '403':
+          description: Forbidden (admin role required)
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: uuid
+      description: |
+        Authentication via UUID cookie. The cookie contains a UUID that maps to a JWT token stored in Redis.
+        
+        To authenticate:
+        1. Make a request to `/gateway/test-auth` to create a session
+        2. The UUID cookie will be automatically set
+        3. Use this cookie for subsequent authenticated requests
+
+  schemas:
+    User:
+      type: object
+      properties:
+        userId:
+          type: string
+          example: "test-user-123"
+        role:
+          type: string
+          enum: [user, admin]
+          example: "user"
+        email:
+          type: string
+          format: email
+          example: "test@example.com"
+
+    UserProfile:
+      type: object
+      properties:
+        userId:
+          type: string
+          example: "user-123-456"
+        name:
+          type: string
+          example: "John Doe"
+        email:
+          type: string
+          format: email
+          example: "john@example.com"
+        role:
+          type: string
+          enum: [user, admin]
+          example: "user"
+        createdAt:
+          type: string
+          format: date-time
+        lastLogin:
+          type: string
+          format: date-time
+
+    RouteConfig:
+      type: object
+      properties:
+        path:
+          type: string
+          example: "/api/v1/users/**"
+        target:
+          type: string
+          example: "http://10.1.4.19:3001"
+        middleware:
+          type: array
+          items:
+            type: string
+            enum: [auth, session, rbac, uuid]
+          example: ["auth", "session", "rbac"]
+        status:
+          type: string
+          example: "configured"
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: "Failed to create test session"
+        message:
+          type: string
+          example: "Redis connection failed"
+
+    AuthError:
+      type: object
+      properties:
+        message:
+          type: string
+          enum:
+            - "Unauthorized: No session ID found."
+            - "Unauthorized: Session not found or expired."
+            - "Unauthorized: Invalid session token."
+          example: "Unauthorized: Session not found or expired."
+
+  examples:
+    SuccessfulAuth:
+      summary: Successful authentication response
+      value:
+        message: "Test session created using automatic UUID"
+        sessionId: "abc-123-def-456"
+        user:
+          userId: "test-user-123"
+          role: "user"
+          email: "test@example.com"
+        flow: "Global UUID Middleware → Redis Storage"
+        cookieAlreadySet: "UUID cookie was set automatically"
+
+    RouteConfiguration:
+      summary: Example route configuration
+      value:
+        message: "Gateway route configuration"
+        routes:
+          - path: "/api/v1/auth/**"
+            target: "http://10.1.4.19:3001"
+            middleware: []
+            status: "configured"
+          - path: "/api/v1/users/**"
+            target: "http://10.1.4.19:3001"
+            middleware: ["auth", "session", "rbac"]
+            status: "configured"
+        totalRoutes: 4

@@ -2,6 +2,8 @@
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import cors from 'cors';
+import swaggerUi from 'swagger-ui-express';
+import YAML from 'yamljs';
 import { env } from './config/environment.js';
 import routes from './config/routes.json' assert { type: 'json' };
 import { authMiddleware } from './middleware/auth.middleware.js';
@@ -11,6 +13,9 @@ import { uuidMiddleware } from './middleware/uuid.middleware.js';
 import { createSessionMiddleware, ensureSessionMiddleware } from './middleware/session.middleware.js';
 
 const app = express();
+
+// Load Swagger documentation
+const swaggerDocument = YAML.load('./swagger.yaml');
 
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
@@ -33,6 +38,34 @@ app.get('/health', (req, res) => {
     timestamp: new Date().toISOString(),
     gateway: 'running'
   });
+});
+
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    message: 'API Gateway is running',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      documentation: '/api-docs',
+      authentication: '/gateway/test-auth'
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Swagger UI Documentation
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'API Gateway Documentation',
+  swaggerOptions: {
+    persistAuthorization: true,
+  }
+}));
+
+// API Documentation redirect
+app.get('/docs', (req, res) => {
+  res.redirect('/api-docs');
 });
 
 // Test endpoint to verify gateway functionality without backend services
@@ -128,8 +161,43 @@ routes.forEach((route) => {
   };
 
   const proxy = createProxy(targetUrl, route.path);
+  
+  // Add middleware to inject user headers before proxy
+  const injectUserHeaders = (req, res, next) => {
+    if (req.user && req.user.userId) {
+      req.headers['x-user-id'] = req.user.userId;
+      req.headers['x-user-role'] = req.user.role || 'user';
+    }
+    next();
+  };
 
-  app.use(route.path, methodCheck, ...routeMiddlewares, proxy);
+  app.use(route.path, methodCheck, ...routeMiddlewares, injectUserHeaders, proxy);
+});
+
+// 404 handler - must be after all routes
+app.use('*', (req, res) => {
+  res.status(404).json({
+    error: 'Not Found',
+    message: `Route ${req.method} ${req.originalUrl} not found`,
+    availableEndpoints: {
+      health: 'GET /health',
+      documentation: 'GET /api-docs',
+      authentication: 'POST /gateway/test-auth',
+      userRoutes: 'GET|PUT|DELETE /api/v1/users/user/:userId'
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Global error handler:', err);
+  
+  res.status(err.status || 500).json({
+    error: err.name || 'Internal Server Error',
+    message: err.message || 'Something went wrong',
+    timestamp: new Date().toISOString()
+  });
 });
 
 app.listen(env.PORT, () => {
