@@ -2,13 +2,13 @@
   {
     "path": "/api/v1/auth/**",
     "target": "${AUTH_SERVICE_URL}",
-    "methods": ["POST"],
+    "methods": ["POST", "PUT"],
     "middleware": []
   },
   {
     "path": "/api/v1/users/**",
     "target": "${AUTH_SERVICE_URL}",
-    "methods": ["GET", "PUT", "PATCH", "DELETE"],
+    "methods": ["GET", "PUT", "DELETE"],
     "middleware": ["auth", "session", "rbac"]
   },
   {
@@ -22,5 +22,11 @@
     "target": "${ANALYTICS_SERVICE_URL}",
     "methods": ["POST"],
     "middleware": ["auth", "session", "rbac"]
+  },
+  {
+    "path": "/gateway/api/v1/**",
+    "target": "${AUTH_SERVICE_URL}",
+    "methods": ["GET"],
+    "middleware": []
   }
 ]
