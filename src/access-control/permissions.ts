@@ -1,5 +1,14 @@
-// src/access-control/permissions.js
-const permissions = {
+// src/access-control/permissions.ts
+
+export type Role = 'admin' | 'user';
+export type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export interface Permission {
+  resource: string;
+  methods: Method[];
+}
+
+const permissions: Record<Role, Permission[]> = {
   admin: [
     { resource: '/api/v1/auth/user', methods: ['DELETE'] },
     { resource: '/api/v1/dashboard/**', methods: ['POST'] },
@@ -16,12 +25,11 @@ const permissions = {
   ],
 };
 
-
-const wildcardToRegex = (wildcard) => {
+const wildcardToRegex = (wildcard: string): RegExp => {
   return new RegExp(`^${wildcard.replace(/\*\*/g, '.*')}$`);
 };
 
-export const checkPermission = (role, resource, method) => {
+export const checkPermission = (role: Role, resource: string, method: Method): boolean => {
   if (!permissions[role]) {
     return false;
   }
